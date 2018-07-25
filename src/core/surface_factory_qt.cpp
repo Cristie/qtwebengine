@@ -51,7 +51,10 @@
 #if defined(USE_OZONE)
 
 #include <EGL/egl.h>
+#include <QOpenGLContext>
 #include <dlfcn.h>
+
+Q_GUI_EXPORT QOpenGLContext *qt_gl_global_share_context();
 
 namespace QtWebEngineCore {
 
@@ -63,7 +66,18 @@ bool SurfaceFactoryQt::LoadEGLGLES2Bindings()
         return false;
     }
 
-    gl::GLGetProcAddressProc get_proc_address = reinterpret_cast<gl::GLGetProcAddressProc>(base::GetFunctionPointerFromNativeLibrary(eglgles2Library, "eglGetProcAddress"));
+    gl::GLGetProcAddressProc get_proc_address =
+            reinterpret_cast<gl::GLGetProcAddressProc>(
+                base::GetFunctionPointerFromNativeLibrary(eglgles2Library,
+                                                          "eglGetProcAddress"));
+    if (!get_proc_address) {
+        // QTBUG-63341 most likely libgles2 not linked with libegl -> fallback to qpa
+        if (QOpenGLContext *context = qt_gl_global_share_context()) {
+            get_proc_address = reinterpret_cast<gl::GLGetProcAddressProc>(
+                context->getProcAddress("eglGetProcAddress"));
+        }
+    }
+
     if (!get_proc_address) {
         LOG(ERROR) << "eglGetProcAddress not found.";
         base::UnloadNativeLibrary(eglgles2Library);

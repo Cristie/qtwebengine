@@ -47,8 +47,9 @@
 #include "qwebenginesettings.h"
 #include "qwebenginescriptcollection_p.h"
 
+#include "qwebenginebrowsercontext_p.h"
+#include "qtwebenginecoreglobal.h"
 #include "browser_context_adapter.h"
-#include <qtwebenginecoreglobal.h>
 #include "visited_links_manager_qt.h"
 #include "web_engine_settings.h"
 
@@ -145,24 +146,18 @@ using QtWebEngineCore::BrowserContextAdapter;
   \sa QWebEngineDownloadItem
 */
 
-QWebEngineProfilePrivate::QWebEngineProfilePrivate(QSharedPointer<BrowserContextAdapter> browserContext)
+QWebEngineProfilePrivate::QWebEngineProfilePrivate(QSharedPointer<QtWebEngineCore::BrowserContextAdapter> browserContext)
         : m_settings(new QWebEngineSettings())
         , m_scriptCollection(new QWebEngineScriptCollection(new QWebEngineScriptCollectionPrivate(browserContext->userResourceController())))
-        , m_browserContextRef(browserContext)
+        , m_browserContext(new QWebEngineBrowserContext(browserContext, this))
 {
-    m_browserContextRef->addClient(this);
     m_settings->d_ptr->initDefaults(browserContext->isOffTheRecord());
 }
 
 QWebEngineProfilePrivate::~QWebEngineProfilePrivate()
 {
-    // In the case the user sets this profile as the parent of the interceptor
-    // it can be deleted before the browser-context still referencing it is.
-    m_browserContextRef->setRequestInterceptor(nullptr);
-
     delete m_settings;
     m_settings = 0;
-    m_browserContextRef->removeClient(this);
 
     Q_FOREACH (QWebEngineDownloadItem* download, m_ongoingDownloads) {
         if (download)
@@ -170,11 +165,19 @@ QWebEngineProfilePrivate::~QWebEngineProfilePrivate()
     }
 
     m_ongoingDownloads.clear();
+    if (m_browserContext)
+        m_browserContext->shutdown();
+}
+
+QSharedPointer<QtWebEngineCore::BrowserContextAdapter> QWebEngineProfilePrivate::browserContext() const
+{
+    return m_browserContext ? m_browserContext->browserContextRef : nullptr;
 }
 
 void QWebEngineProfilePrivate::cancelDownload(quint32 downloadId)
 {
-    browserContext()->cancelDownload(downloadId);
+    if (m_browserContext)
+        m_browserContext->browserContextRef->cancelDownload(downloadId);
 }
 
 void QWebEngineProfilePrivate::downloadDestroyed(quint32 downloadId)
@@ -364,6 +367,10 @@ void QWebEngineProfile::setCachePath(const QString &path)
 
 /*!
     Returns the user-agent string sent with HTTP to identify the browser.
+
+    \note On Windows 8.1 and newer, the default user agent will always report
+    "Windows NT 6.2" (Windows 8), unless the application does contain a manifest
+    that declares newer Windows versions as supported.
 
     \sa setHttpUserAgent()
 */

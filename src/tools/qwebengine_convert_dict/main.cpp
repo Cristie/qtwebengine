@@ -8,7 +8,7 @@
 ** Copyright (C) 2016 The Qt Company Ltd.
 **
 ** Use of this source code is governed by a BSD-style license that can be
-** found in the LICENSE file.
+** found in the LICENSE.Chromium file.
 **
 ** This tool converts Hunspell .aff/.dic pairs to a combined binary dictionary
 ** format (.bdic). This format is more compact, and can be more efficiently
@@ -30,6 +30,7 @@
 #include <QTextStream>
 #include <QLibraryInfo>
 #include <QDir>
+#include <QCoreApplication>
 
 // see also src/core/type_conversion.h
 inline base::FilePath::StringType toFilePathString(const QString &str)
@@ -117,6 +118,11 @@ QString frameworkIcuDataPath()
 
 int main(int argc, char *argv[])
 {
+    // Required only for making QLibraryInfo::location() return a valid path, when the application
+    // picks up a qt.conf file (which is the case for official Qt packages).
+    QCoreApplication app(argc, argv);
+    Q_UNUSED(app);
+
     QTextStream out(stdout);
 
     if (argc != 3) {

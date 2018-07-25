@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2017 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWebEngine module of the Qt Toolkit.
@@ -143,9 +143,11 @@ static bool printPdfDataOnPrinter(const QByteArray& data, QPrinter& printer)
     QPainter painter;
     if (!painter.begin(&printer)) {
 #if QT_VERSION >= QT_VERSION_CHECK(5, 7, 0)
-        qWarning("Failure to print on printer %ls: Could not open printer for painting.", qUtf16Printable(printer.printerName()));
+        qWarning("Failure to print on printer %ls: Could not open printer for painting.",
+                  qUtf16Printable(printer.printerName()));
 #else
-        qWarning("Failure to print on printer %s: Could not open printer for painting.", qPrintable(printer.printerName()));
+        qWarning("Failure to print on printer %s: Could not open printer for painting.",
+                 qPrintable(printer.printerName()));
 #endif
         return false;
     }
@@ -1242,7 +1244,9 @@ void QWebEnginePage::triggerAction(WebAction action, bool)
         break;
     case DownloadLinkToDisk:
         if (menuData.linkUrl().isValid())
-            d->adapter->download(menuData.linkUrl(), menuData.suggestedFileName());
+            d->adapter->download(menuData.linkUrl(), menuData.suggestedFileName(),
+                                 menuData.referrerUrl(), menuData.referrerPolicy());
+
         break;
     case CopyImageToClipboard:
         if (menuData.hasImageContent() &&
@@ -1269,7 +1273,8 @@ void QWebEnginePage::triggerAction(WebAction action, bool)
     case DownloadImageToDisk:
     case DownloadMediaToDisk:
         if (menuData.mediaUrl().isValid())
-            d->adapter->download(menuData.mediaUrl(), menuData.suggestedFileName());
+            d->adapter->download(menuData.mediaUrl(), menuData.suggestedFileName(),
+                                 menuData.referrerUrl(), menuData.referrerPolicy());
         break;
     case CopyMediaUrlToClipboard:
         if (menuData.mediaUrl().isValid() &&
@@ -1322,7 +1327,8 @@ void QWebEnginePage::triggerAction(WebAction action, bool)
         d->adapter->inspectElementAt(menuData.position());
         break;
     case ExitFullScreen:
-        d->adapter->exitFullScreen();
+        // See under ViewSource, anything that can trigger a delete of the current view is dangerous to call directly here.
+        QTimer::singleShot(0, this, [d](){ d->adapter->exitFullScreen(); });
         break;
     case RequestClose:
         d->adapter->requestClose();
@@ -1397,7 +1403,7 @@ void QWebEnginePagePrivate::wasHidden()
 
 bool QWebEnginePagePrivate::contextMenuRequested(const WebEngineContextMenuData &data)
 {
-    if (!view || !view->d_func()->m_pendingContextMenuEvent)
+    if (!view)
         return false;
 
     contextData.reset();
@@ -1423,7 +1429,6 @@ bool QWebEnginePagePrivate::contextMenuRequested(const WebEngineContextMenuData 
         event.ignore();
         return false;
     }
-    view->d_func()->m_pendingContextMenuEvent = false;
     return true;
 }
 
@@ -1431,7 +1436,7 @@ void QWebEnginePagePrivate::navigationRequested(int navigationType, const QUrl &
 {
     Q_Q(QWebEnginePage);
     bool accepted = q->acceptNavigationRequest(url, static_cast<QWebEnginePage::NavigationType>(navigationType), isMainFrame);
-    if (accepted && adapter)
+    if (accepted && adapter && adapter->isFindTextInProgress())
         adapter->stopFinding();
     navigationRequestAction = accepted ? WebContentsAdapterClient::AcceptRequest : WebContentsAdapterClient::IgnoreRequest;
 }
@@ -1550,12 +1555,21 @@ bool QWebEnginePagePrivate::isEnabled() const
 
 void QWebEnginePagePrivate::setToolTip(const QString &toolTipText)
 {
-    if (view) {
-        QString wrappedTip;
-        if (!toolTipText.isEmpty())
-             wrappedTip = QLatin1String("<p>") % toolTipText.toHtmlEscaped().left(MaxTooltipLength) % QLatin1String("</p>");
-        view->setToolTip(wrappedTip);
+    if (!view)
+        return;
+
+    // Hide tooltip if shown.
+    if (toolTipText.isEmpty()) {
+        if (!view->toolTip().isEmpty())
+            view->setToolTip(QString());
+
+        return;
     }
+
+    // Update tooltip if text was changed.
+    QString wrappedTip = QLatin1String("<p>") % toolTipText.toHtmlEscaped().left(MaxTooltipLength) % QLatin1String("</p>");
+    if (view->toolTip() != wrappedTip)
+        view->setToolTip(wrappedTip);
 }
 
 QMenu *QWebEnginePage::createStandardContextMenu()

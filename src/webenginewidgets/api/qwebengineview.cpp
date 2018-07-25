@@ -50,8 +50,9 @@
 #include <QAction>
 #include <QMenu>
 #include <QContextMenuEvent>
-#include <QStackedLayout>
 #include <QPageLayout>
+#include <QStackedLayout>
+#include <QToolTip>
 
 QT_BEGIN_NAMESPACE
 
@@ -106,7 +107,6 @@ static QAccessibleInterface *webAccessibleFactory(const QString &, QObject *obje
 
 QWebEngineViewPrivate::QWebEngineViewPrivate()
     : page(0)
-    , m_pendingContextMenuEvent(false)
     , m_dragEntered(false)
 {
 #ifndef QT_NO_ACCESSIBILITY
@@ -316,14 +316,24 @@ void QWebEngineView::setZoomFactor(qreal factor)
  */
 bool QWebEngineView::event(QEvent *ev)
 {
-    Q_D(QWebEngineView);
     // We swallow spontaneous contextMenu events and synthethize those back later on when we get the
     // HandleContextMenu callback from chromium
     if (ev->type() == QEvent::ContextMenu) {
         ev->accept();
-        d->m_pendingContextMenuEvent = true;
         return true;
     }
+
+    // Override QWidget's default ToolTip handler since it doesn't hide tooltip on empty text.
+    if (ev->type() == QEvent::ToolTip) {
+        if (!toolTip().isEmpty())
+            QToolTip::showText(static_cast<QHelpEvent *>(ev)->globalPos(), toolTip(), this, QRect(), toolTipDuration());
+        else
+            QToolTip::hideText();
+
+        ev->accept();
+        return true;
+    }
+
     return QWidget::event(ev);
 }
 

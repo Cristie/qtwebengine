@@ -39,7 +39,7 @@
 
 // Copyright (c) 2012 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE.Chromium file.
 
 #include "gl_surface_qt.h"
 
@@ -48,6 +48,7 @@
 #include <QGuiApplication>
 #include "gl_context_qt.h"
 #include "qtwebenginecoreglobal_p.h"
+#include "web_engine_context.h"
 
 #include "base/logging.h"
 #include "gpu/ipc/service/image_transport_surface.h"
@@ -256,7 +257,7 @@ bool GLSurfaceQtGLX::Initialize()
         GLX_PBUFFER_HEIGHT, m_size.height(),
         GLX_LARGEST_PBUFFER, False,
         GLX_PRESERVED_CONTENTS, False,
-        GLX_NONE
+        0
     };
 
     m_surfaceBuffer = glXCreatePbuffer(display, static_cast<GLXFBConfig>(g_config), pbuffer_attributes);
@@ -616,6 +617,11 @@ bool InitializeGLOneOffPlatform()
     }
 
     return false;
+}
+
+bool usingSoftwareDynamicGL()
+{
+    return QtWebEngineCore::usingSoftwareDynamicGL();
 }
 
 scoped_refptr<GLSurface>

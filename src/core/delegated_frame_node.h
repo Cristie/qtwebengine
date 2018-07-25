@@ -60,10 +60,17 @@ QT_END_NAMESPACE
 
 namespace cc {
 class DelegatedFrameData;
+class DrawQuad;
+class DrawPolygon;
+}
+
+namespace gfx {
+class QuadF;
 }
 
 namespace QtWebEngineCore {
 
+class DelegatedNodeTreeHandler;
 class MailboxTexture;
 class ResourceHolder;
 
@@ -86,6 +93,31 @@ public:
     void commit(ChromiumCompositorData *chromiumCompositorData, cc::ReturnedResourceArray *resourcesToRelease, RenderWidgetHostViewQtDelegate *apiDelegate);
 
 private:
+    void flushPolygons(
+        std::deque<std::unique_ptr<cc::DrawPolygon>> *polygonQueue,
+        QSGNode *renderPassChain,
+        DelegatedNodeTreeHandler *nodeHandler,
+        QHash<unsigned, QSharedPointer<ResourceHolder> > &resourceCandidates,
+        RenderWidgetHostViewQtDelegate *apiDelegate);
+    void handlePolygon(
+        const cc::DrawPolygon *polygon,
+        QSGNode *currentLayerChain,
+        DelegatedNodeTreeHandler *nodeHandler,
+        QHash<unsigned, QSharedPointer<ResourceHolder> > &resourceCandidates,
+        RenderWidgetHostViewQtDelegate *apiDelegate);
+    void handleClippedQuad(
+        const cc::DrawQuad *quad,
+        const gfx::QuadF &clipRegion,
+        QSGNode *currentLayerChain,
+        DelegatedNodeTreeHandler *nodeHandler,
+        QHash<unsigned, QSharedPointer<ResourceHolder> > &resourceCandidates,
+        RenderWidgetHostViewQtDelegate *apiDelegate);
+    void handleQuad(
+        const cc::DrawQuad *quad,
+        QSGNode *currentLayerChain,
+        DelegatedNodeTreeHandler *nodeHandler,
+        QHash<unsigned, QSharedPointer<ResourceHolder> > &resourceCandidates,
+        RenderWidgetHostViewQtDelegate *apiDelegate);
     void fetchAndSyncMailboxes(QList<MailboxTexture *> &mailboxesToFetch);
     // Making those callbacks static bypasses base::Bind's ref-counting requirement
     // of the this pointer when the callback is a method.
@@ -93,6 +125,8 @@ private:
     static void fenceAndUnlockQt(DelegatedFrameNode *frameNode);
 
     ResourceHolder *findAndHoldResource(unsigned resourceId, QHash<unsigned, QSharedPointer<ResourceHolder> > &candidates);
+    void holdResources(const cc::DrawQuad *quad, QHash<unsigned, QSharedPointer<ResourceHolder> > &candidates);
+    void holdResources(const cc::RenderPass *pass, QHash<unsigned, QSharedPointer<ResourceHolder> > &candidates);
     QSGTexture *initAndHoldTexture(ResourceHolder *resource, bool quadIsAllOpaque, RenderWidgetHostViewQtDelegate *apiDelegate = 0);
 
     QExplicitlySharedDataPointer<ChromiumCompositorData> m_chromiumCompositorData;
@@ -111,6 +145,7 @@ private:
     bool m_contextShared;
     QScopedPointer<QOffscreenSurface> m_offsurface;
 #endif
+    QSize m_previousViewportSize;
 };
 
 } // namespace QtWebEngineCore

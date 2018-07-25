@@ -29,6 +29,7 @@
 #include <QMainWindow>
 #include <QMenu>
 #include <QMimeDatabase>
+#include <QNetworkProxy>
 #include <QOpenGLWidget>
 #include <QPaintEngine>
 #include <QPushButton>
@@ -197,6 +198,7 @@ private Q_SLOTS:
     void loadFinishedAfterNotFoundError();
     void loadInSignalHandlers_data();
     void loadInSignalHandlers();
+    void loadFromQrc();
 
     void restoreHistory();
     void toPlainTextLoadFinishedRace_data();
@@ -209,6 +211,7 @@ private Q_SLOTS:
     void viewSource();
     void viewSourceURL_data();
     void viewSourceURL();
+    void proxyConfigWithUnexpectedHostPortPair();
 
 private:
     static QPoint elementCenter(QWebEnginePage *page, const QString &id);
@@ -4037,6 +4040,41 @@ void tst_QWebEnginePage::loadInSignalHandlers()
     QCOMPARE(m_page->url(), urlForSetter);
 }
 
+void tst_QWebEnginePage::loadFromQrc()
+{
+    QWebEnginePage page;
+    QSignalSpy spy(&page, &QWebEnginePage::loadFinished);
+
+    // Standard case.
+    page.load(QStringLiteral("qrc:///resources/foo.txt"));
+    QTRY_COMPARE(spy.count(), 1);
+    QCOMPARE(spy.takeFirst().value(0).toBool(), true);
+    QCOMPARE(toPlainTextSync(&page), QStringLiteral("foo\n"));
+
+    // Query and fragment parts are ignored.
+    page.load(QStringLiteral("qrc:///resources/bar.txt?foo=1#bar"));
+    QTRY_COMPARE(spy.count(), 1);
+    QCOMPARE(spy.takeFirst().value(0).toBool(), true);
+    QCOMPARE(toPlainTextSync(&page), QStringLiteral("bar\n"));
+
+    // Literal spaces are OK.
+    page.load(QStringLiteral("qrc:///resources/path with spaces.txt"));
+    QTRY_COMPARE(spy.count(), 1);
+    QCOMPARE(spy.takeFirst().value(0).toBool(), true);
+    QCOMPARE(toPlainTextSync(&page), QStringLiteral("contents with spaces\n"));
+
+    // Escaped spaces are OK too.
+    page.load(QStringLiteral("qrc:///resources/path%20with%20spaces.txt"));
+    QTRY_COMPARE(spy.count(), 1);
+    QCOMPARE(spy.takeFirst().value(0).toBool(), true);
+    QCOMPARE(toPlainTextSync(&page), QStringLiteral("contents with spaces\n"));
+
+    // Resource not found, loading fails.
+    page.load(QStringLiteral("qrc:///nope"));
+    QTRY_COMPARE(spy.count(), 1);
+    QCOMPARE(spy.takeFirst().value(0).toBool(), false);
+}
+
 void tst_QWebEnginePage::restoreHistory()
 {
     QWebChannel channel;
@@ -4315,6 +4353,23 @@ void tst_QWebEnginePage::viewSourceURL()
     QCOMPARE(page.requestedUrl(), requestedUrl);
     QCOMPARE(page.title(), title);
     QVERIFY(!page.action(QWebEnginePage::ViewSource)->isEnabled());
+}
+
+Q_DECLARE_METATYPE(QNetworkProxy::ProxyType);
+
+void tst_QWebEnginePage::proxyConfigWithUnexpectedHostPortPair()
+{
+    // Chromium expects a proxy of type NoProxy to not have a host or port set.
+
+    QNetworkProxy proxy;
+    proxy.setType(QNetworkProxy::NoProxy);
+    proxy.setHostName(QStringLiteral("127.0.0.1"));
+    proxy.setPort(244);
+    QNetworkProxy::setApplicationProxy(proxy);
+
+    QSignalSpy loadFinishedSpy(m_page, SIGNAL(loadFinished(bool)));
+    m_page->load(QStringLiteral("http://127.0.0.1:245/"));
+    QTRY_COMPARE(loadFinishedSpy.count(), 1);
 }
 
 QTEST_MAIN(tst_QWebEnginePage)

@@ -243,8 +243,10 @@ bool RenderWidgetHostViewQtDelegateQuick::event(QEvent *event)
     if (event->type() == QEvent::ShortcutOverride)
         return m_client->handleShortcutOverrideEvent(static_cast<QKeyEvent *>(event));
 
+#ifndef QT_NO_GESTURES
     if (event->type() == QEvent::NativeGesture)
         return m_client->forwardEvent(event);
+#endif
 
     return QQuickItem::event(event);
 }
@@ -327,6 +329,11 @@ void RenderWidgetHostViewQtDelegateQuick::hoverMoveEvent(QHoverEvent *event)
         event->ignore();
         return;
     }
+    m_client->forwardEvent(event);
+}
+
+void RenderWidgetHostViewQtDelegateQuick::hoverLeaveEvent(QHoverEvent *event)
+{
     m_client->forwardEvent(event);
 }
 

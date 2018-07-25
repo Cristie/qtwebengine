@@ -67,6 +67,7 @@
 #include "content/renderer/in_process_renderer_thread.h"
 #include "content/utility/in_process_utility_thread.h"
 #include "gpu/command_buffer/service/gpu_switches.h"
+#include "net/base/port_util.h"
 #include "ui/events/event_switches.h"
 #include "ui/native_theme/native_theme_switches.h"
 #include "ui/gl/gl_switches.h"
@@ -116,7 +117,11 @@ void destroyContext()
     // Before destroying MessageLoop via destroying BrowserMainRunner destructor
     // WebEngineContext's pointer is used.
     sContext->destroy();
-    sContext = 0;
+#if !defined(NDEBUG)
+    if (!sContext->HasOneRef())
+        qWarning("WebEngineContext leaked on exit, likely due to leaked WebEngine View or Page");
+#endif
+    sContext = nullptr;
     s_destroyed = true;
 }
 
@@ -127,21 +132,6 @@ bool usingANGLE()
     if (qt_gl_global_share_context())
         return qt_gl_global_share_context()->isOpenGLES();
     return QOpenGLContext::openGLModuleType() == QOpenGLContext::LibGLES;
-#else
-    return false;
-#endif
-}
-
-bool usingSoftwareDynamicGL()
-{
-    if (QCoreApplication::testAttribute(Qt::AA_UseSoftwareOpenGL))
-        return true;
-#if defined(Q_OS_WIN)
-    HMODULE handle = static_cast<HMODULE>(QOpenGLContext::openGLModuleHandle());
-    wchar_t path[MAX_PATH];
-    DWORD size = GetModuleFileName(handle, path, MAX_PATH);
-    QFileInfo openGLModule(QString::fromWCharArray(path, size));
-    return openGLModule.fileName() == QLatin1String("opengl32sw.dll");
 #else
     return false;
 #endif
@@ -183,6 +173,21 @@ void dummyGetPluginCallback(const std::vector<content::WebPluginInfo>&)
 
 namespace QtWebEngineCore {
 
+bool usingSoftwareDynamicGL()
+{
+    if (QCoreApplication::testAttribute(Qt::AA_UseSoftwareOpenGL))
+        return true;
+#if defined(Q_OS_WIN)
+    HMODULE handle = static_cast<HMODULE>(QOpenGLContext::openGLModuleHandle());
+    wchar_t path[MAX_PATH];
+    DWORD size = GetModuleFileName(handle, path, MAX_PATH);
+    QFileInfo openGLModule(QString::fromWCharArray(path, size));
+    return openGLModule.fileName() == QLatin1String("opengl32sw.dll");
+#else
+    return false;
+#endif
+}
+
 void WebEngineContext::destroyBrowserContext()
 {
     m_defaultBrowserContext.reset();
@@ -192,19 +197,26 @@ void WebEngineContext::destroy()
 {
     if (m_devtoolsServer)
         m_devtoolsServer->stop();
-    delete m_globalQObject;
-    m_globalQObject = 0;
     base::MessagePump::Delegate *delegate = m_runLoop->loop_;
     // Flush the UI message loop before quitting.
     while (delegate->DoWork()) { }
+
+    if (m_defaultBrowserContext)
+        m_defaultBrowserContext->shutdown();
+    // Delete the global object and thus custom profiles
+    delete m_globalQObject;
+    m_globalQObject = nullptr;
+    // Handle any events posted by browser-context shutdown.
+    while (delegate->DoWork()) { }
+
     GLContextHelper::destroy();
-    m_devtoolsServer.reset(0);
+    m_devtoolsServer.reset();
     m_runLoop->AfterRun();
 
     // Force to destroy RenderProcessHostImpl by destroying BrowserMainRunner.
     // RenderProcessHostImpl should be destroyed before WebEngineContext since
     // default BrowserContext might be used by the RenderprocessHostImpl's destructor.
-    m_browserRunner.reset(0);
+    m_browserRunner.reset();
 
     // Drop the false reference.
     sContext->Release();
@@ -283,6 +295,9 @@ WebEngineContext::WebEngineContext()
         appArgs.append(QString::fromLocal8Bit(qgetenv(kChromiumFlagsEnv)).split(' '));
     }
 
+    bool enableWebGLSoftwareRendering =
+            appArgs.removeAll(QStringLiteral("--enable-webgl-software-rendering"));
+
     bool useEmbeddedSwitches = false;
 #if defined(QTWEBENGINE_EMBEDDED_SWITCHES)
     useEmbeddedSwitches = !appArgs.removeAll(QStringLiteral("--disable-embedded-switches"));
@@ -324,6 +339,9 @@ WebEngineContext::WebEngineContext()
     // Enabled on OS X and Linux but currently not working. It worked in 5.7 on OS X.
     parsedCommandLine->AppendSwitch(switches::kDisableGpuMemoryBufferVideoFrames);
 
+    // Shared workers are not safe until Chromium 64
+    parsedCommandLine->AppendSwitch(switches::kDisableSharedWorkers);
+
 #if defined(Q_OS_MACOS)
     // Accelerated decoding currently does not work on macOS due to issues with OpenGL Rectangle
     // texture support. See QTBUG-60002.
@@ -362,7 +380,20 @@ WebEngineContext::WebEngineContext()
 
     const char *glType = 0;
 #ifndef QT_NO_OPENGL
-    if (!usingANGLE() && !usingSoftwareDynamicGL() && !usingQtQuick2DRenderer()) {
+
+    bool tryGL =
+            !usingANGLE()
+            && (!usingSoftwareDynamicGL()
+#ifdef Q_OS_WIN
+                // If user requested WebGL support on Windows, instead of using Skia rendering to
+                // bitmaps, use software rendering via opengl32sw.dll. This might be less
+                // performant, but at least provides WebGL support.
+                || enableWebGLSoftwareRendering
+#endif
+                )
+            && !usingQtQuick2DRenderer();
+
+    if (tryGL) {
         if (qt_gl_global_share_context() && qt_gl_global_share_context()->isValid()) {
             // If the native handle is QEGLNativeContext try to use GL ES/2, if there is no native handle
             // assume we are using wayland and try GL ES/2, and finally Ozone demands GL ES/2 too.
@@ -454,6 +485,11 @@ WebEngineContext::WebEngineContext()
     MediaCaptureDevicesDispatcher::GetInstance();
 
     base::ThreadRestrictions::SetIOAllowed(true);
+
+    if (parsedCommandLine->HasSwitch(switches::kExplicitlyAllowedPorts)) {
+        std::string allowedPorts = parsedCommandLine->GetSwitchValueASCII(switches::kExplicitlyAllowedPorts);
+        net::SetExplicitlyAllowedPorts(allowedPorts);
+    }
 
 #if defined(ENABLE_PLUGINS)
     // Creating pepper plugins from the page (which calls PluginService::GetPluginInfoArray)

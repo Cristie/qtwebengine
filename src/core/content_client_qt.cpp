@@ -74,7 +74,7 @@ static QString getLocalAppDataDir()
 // The plugin logic is based on chrome/common/chrome_content_client.cc:
 // Copyright (c) 2012 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE.Chromium file.
 
 #include "content/public/common/pepper_plugin_info.h"
 #include "ppapi/shared_impl/ppapi_permissions.h"
@@ -268,6 +268,7 @@ void AddPepperWidevine(std::vector<content::PepperPluginInfo>* plugins)
             widevine_cdm.mime_types.push_back(widevine_cdm_mime_type);
             widevine_cdm.permissions = kWidevineCdmPluginPermissions;
             plugins->push_back(widevine_cdm);
+            break;
         }
     }
 #endif  // defined(WIDEVINE_CDM_AVAILABLE) && BUILDFLAG(ENABLE_PEPPER_CDMS) &&

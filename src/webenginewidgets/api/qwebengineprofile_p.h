@@ -54,6 +54,7 @@
 #include "browser_context_adapter_client.h"
 #include "qwebengineprofile.h"
 #include "qwebenginescriptcollection.h"
+
 #include <QMap>
 #include <QPointer>
 #include <QScopedPointer>
@@ -65,6 +66,8 @@ class BrowserContextAdapter;
 
 QT_BEGIN_NAMESPACE
 
+class QWebEngineBrowserContext;
+class QWebEngineProfilePrivate;
 class QWebEngineSettings;
 
 class QWebEngineProfilePrivate : public QtWebEngineCore::BrowserContextAdapterClient {
@@ -73,7 +76,7 @@ public:
     QWebEngineProfilePrivate(QSharedPointer<QtWebEngineCore::BrowserContextAdapter> browserContext);
     ~QWebEngineProfilePrivate();
 
-    QSharedPointer<QtWebEngineCore::BrowserContextAdapter> browserContext() const { return m_browserContextRef; }
+    QSharedPointer<QtWebEngineCore::BrowserContextAdapter> browserContext() const;
     QWebEngineSettings *settings() const { return m_settings; }
 
     void cancelDownload(quint32 downloadId);
@@ -86,7 +89,7 @@ private:
     QWebEngineProfile *q_ptr;
     QWebEngineSettings *m_settings;
     QScopedPointer<QWebEngineScriptCollection> m_scriptCollection;
-    QSharedPointer<QtWebEngineCore::BrowserContextAdapter> m_browserContextRef;
+    QPointer<QWebEngineBrowserContext> m_browserContext;
     QMap<quint32, QPointer<QWebEngineDownloadItem> > m_ongoingDownloads;
 };
 

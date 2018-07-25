@@ -148,17 +148,6 @@ for (define, DEFINES): {
   define = $$replace(define,\',)
   GN_CONTENTS += "    \"$$define\","
 }
-!isEmpty(QT_SYSROOT) {
-    !isEmpty(QMAKE_LIBDIR_EGL):
-        GN_CONTENTS += "    \"QT_LIBDIR_EGL=\\\"$${QMAKE_DIR_SEP}$$relative_path($$QMAKE_LIBDIR_EGL, $$[QT_SYSROOT])\\\"\","
-    !isEmpty(QMAKE_LIBDIR_OPENGL_ES2)
-        GN_CONTENTS += "    \"QT_LIBDIR_GLES2=\\\"$${QMAKE_DIR_SEP}$$relative_path($$QMAKE_LIBDIR_OPENGL_ES2, $$[QT_SYSROOT])\\\"\","
-} else {
-    !isEmpty(QMAKE_LIBDIR_EGL):
-        GN_CONTENTS += "    \"QT_LIBDIR_EGL=\\\"$$QMAKE_LIBDIR_EGL\\\"\","
-    !isEmpty(QMAKE_LIBDIR_OPENGL_ES2)
-        GN_CONTENTS += "    \"QT_LIBDIR_GLES2=\\\"$$QMAKE_LIBDIR_OPENGL_ES2\\\"\","
-}
 GN_CONTENTS += "  ]"
 
 # Source files to compile
@@ -175,7 +164,8 @@ GN_CONTENTS += "  if (!defined(include_dirs)) {"\
                "  }"
 GN_CONTENTS += "  include_dirs += ["
 for (path, INCLUDEPATH): GN_CONTENTS += "    \"$$path\","
-GN_CONTENTS += "    rebase_path(\"$target_gen_dir/.moc/\")"
+GN_CONTENTS += "    rebase_path(\"$target_gen_dir/.moc/\"),"
+GN_CONTENTS += "    \"$$QMAKESPEC\""
 GN_CONTENTS += "  ]"
 
 GN_CONTENTS += "  if (!defined(ldflags)) {"\

@@ -39,7 +39,7 @@
 
 // Copyright 2013 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the LICENSE.Chromium file.
 
 #include "web_contents_adapter.h"
 #include "web_contents_adapter_p.h"
@@ -591,9 +591,11 @@ void WebContentsAdapter::setContent(const QByteArray &data, const QString &mimeT
 {
     Q_D(WebContentsAdapter);
     QByteArray encodedData = data.toPercentEncoding();
-    std::string urlString("data:");
-    urlString.append(mimeType.toStdString());
-    urlString.append(",");
+    std::string urlString;
+    if (!mimeType.isEmpty())
+        urlString = std::string("data:") + mimeType.toStdString() + std::string(",");
+    else
+        urlString = std::string("data:text/plain;charset=US-ASCII,");
     urlString.append(encodedData.constData(), encodedData.length());
 
     GURL dataUrlToLoad(urlString);
@@ -928,7 +930,9 @@ void WebContentsAdapter::updateWebPreferences(const content::WebPreferences & we
     d->webContents->GetRenderViewHost()->UpdateWebkitPreferences(webPreferences);
 }
 
-void WebContentsAdapter::download(const QUrl &url, const QString &suggestedFileName)
+void WebContentsAdapter::download(const QUrl &url, const QString &suggestedFileName,
+                                  const QUrl &referrerUrl,
+                                  ReferrerPolicy referrerPolicy)
 {
     Q_D(WebContentsAdapter);
     content::BrowserContext *bctx = webContents()->GetBrowserContext();
@@ -938,12 +942,22 @@ void WebContentsAdapter::download(const QUrl &url, const QString &suggestedFileN
     if (!dlm)
         return;
 
-    dlmd->setDownloadType(BrowserContextAdapterClient::UserRequested);
+    dlmd->markNextDownloadAsUserRequested();
     dlm->SetDelegate(dlmd);
 
+    GURL gurl = toGurl(url);
     std::unique_ptr<content::DownloadUrlParameters> params(
-            content::DownloadUrlParameters::CreateForWebContentsMainFrame(webContents(), toGurl(url)));
+        content::DownloadUrlParameters::CreateForWebContentsMainFrame(webContents(), gurl));
+
     params->set_suggested_name(toString16(suggestedFileName));
+
+    // referrer logic based on chrome/browser/renderer_context_menu/render_view_context_menu.cc:
+    params->set_referrer(
+        content::Referrer::SanitizeForRequest(
+            gurl,
+            content::Referrer(toGurl(referrerUrl).GetAsReferrer(),
+                              static_cast<blink::WebReferrerPolicy>(referrerPolicy))));
+
     dlm->DownloadUrl(std::move(params));
 }
 
@@ -1253,7 +1267,11 @@ bool WebContentsAdapter::handleDropDataFileContents(const content::DropData &dro
     }
 
     const QString &fileName = toQt(dropData.file_description_filename);
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 9, 0))
     const QString &filePath = d->dndTmpDir->filePath(fileName);
+#else
+    const QString &filePath = d->dndTmpDir->path() + QLatin1Char('/') + fileName;
+#endif
     QFile file(filePath);
     if (!file.open(QIODevice::WriteOnly)) {
         qWarning("Cannot write temporary file %s.", qUtf8Printable(filePath));
@@ -1415,6 +1433,12 @@ void WebContentsAdapter::focusIfNecessary()
         d->webContents->Focus();
 }
 
+bool WebContentsAdapter::isFindTextInProgress() const
+{
+    Q_D(const WebContentsAdapter);
+    return d->lastFindRequestId != d->webContentsDelegate->lastReceivedFindReply();
+}
+
 WebContentsAdapterClient::RenderProcessTerminationStatus
 WebContentsAdapterClient::renderProcessExitStatus(int terminationStatus) {
     auto status = WebContentsAdapterClient::RenderProcessTerminationStatus(-1);
@@ -1475,5 +1499,14 @@ ASSERT_ENUMS_MATCH(WebContentsAdapterClient::NewWindowDisposition, WindowOpenDis
 ASSERT_ENUMS_MATCH(WebContentsAdapterClient::SaveToDiskDisposition, WindowOpenDisposition::SAVE_TO_DISK)
 ASSERT_ENUMS_MATCH(WebContentsAdapterClient::OffTheRecordDisposition, WindowOpenDisposition::OFF_THE_RECORD)
 ASSERT_ENUMS_MATCH(WebContentsAdapterClient::IgnoreActionDisposition, WindowOpenDisposition::IGNORE_ACTION)
+
+ASSERT_ENUMS_MATCH(ReferrerPolicy::Always, blink::WebReferrerPolicyAlways)
+ASSERT_ENUMS_MATCH(ReferrerPolicy::Default, blink::WebReferrerPolicyDefault)
+ASSERT_ENUMS_MATCH(ReferrerPolicy::NoReferrerWhenDowngrade, blink::WebReferrerPolicyNoReferrerWhenDowngrade)
+ASSERT_ENUMS_MATCH(ReferrerPolicy::Never, blink::WebReferrerPolicyNever)
+ASSERT_ENUMS_MATCH(ReferrerPolicy::Origin, blink::WebReferrerPolicyOrigin)
+ASSERT_ENUMS_MATCH(ReferrerPolicy::OriginWhenCrossOrigin, blink::WebReferrerPolicyOriginWhenCrossOrigin)
+ASSERT_ENUMS_MATCH(ReferrerPolicy::NoReferrerWhenDowngradeOriginWhenCrossOrigin, blink::WebReferrerPolicyNoReferrerWhenDowngradeOriginWhenCrossOrigin)
+ASSERT_ENUMS_MATCH(ReferrerPolicy::Last, blink::WebReferrerPolicyLast)
 
 } // namespace QtWebEngineCore

@@ -35,7 +35,7 @@
                 { "type": "pkgConfig", "args": "libpulse >= 0.9.10 libpulse-mainloop-glib" }
             ]
         },
-        "icu": {
+        "webengine-icu": {
             "label": "icu >= 53",
             "sources": [
                 { "type": "pkgConfig", "args": "icu-uc >= 53 icu-i18n >= 53" }
@@ -78,6 +78,11 @@
         "embedded": {
             "label": "embedded",
             "type": "embedded"
+        },
+        "re2": {
+            "label": "re2",
+            "test": "re2",
+            "type": "compile"
         }
     },
 
@@ -164,7 +169,13 @@
         "system-icu": {
             "label": "ICU",
             "autoDetect": false,
-            "condition": "libs.icu",
+            "condition": "libs.webengine-icu",
+            "output": [ "privateFeature" ]
+        },
+        "system-re2": {
+            "label": "re2",
+            "autoDetect": "config.unix",
+            "condition": "tests.re2",
             "output": [ "privateFeature" ]
         },
         "system-ninja": {
@@ -213,6 +224,7 @@
                    "section": "System libraries",
                    "condition": "config.unix",
                    "entries": [
+                        "system-re2",
                         "system-icu",
                         "system-webp",
                         "system-opus",

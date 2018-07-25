@@ -80,6 +80,7 @@
 #include <QFocusEvent>
 #include <QGuiApplication>
 #include <QInputMethodEvent>
+#include <QLoggingCategory>
 #include <QTextFormat>
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -225,7 +226,7 @@ public:
     float GetHistoricalTouchMajor(size_t pointer_index, size_t historical_index) const override { return 0; }
     float GetHistoricalX(size_t pointer_index, size_t historical_index) const override { return 0; }
     float GetHistoricalY(size_t pointer_index, size_t historical_index) const override { return 0; }
-    ToolType GetToolType(size_t pointer_index) const override { return ui::MotionEvent::TOOL_TYPE_UNKNOWN; }
+    ToolType GetToolType(size_t pointer_index) const override { return ui::MotionEvent::TOOL_TYPE_FINGER; }
     int GetButtonState() const override { return 0; }
 
 private:
@@ -272,6 +273,10 @@ RenderWidgetHostViewQt::RenderWidgetHostViewQt(content::RenderWidgetHost* widget
     , m_cursorPosition(0)
     , m_emptyPreviousSelection(true)
 {
+    auto* task_runner = base::ThreadTaskRunnerHandle::Get().get();
+    m_beginFrameSource.reset(new cc::DelayBasedBeginFrameSource(
+                                 base::MakeUnique<cc::DelayBasedTimeSource>(task_runner)));
+
     m_host->SetView(this);
 #ifndef QT_NO_ACCESSIBILITY
     if (isAccessibilityEnabled()) {
@@ -280,10 +285,6 @@ RenderWidgetHostViewQt::RenderWidgetHostViewQt(content::RenderWidgetHost* widget
             content::BrowserAccessibilityStateImpl::GetInstance()->EnableAccessibility();
     }
 #endif // QT_NO_ACCESSIBILITY
-    auto* task_runner = base::ThreadTaskRunnerHandle::Get().get();
-    m_beginFrameSource.reset(new cc::DelayBasedBeginFrameSource(
-            base::MakeUnique<cc::DelayBasedTimeSource>(task_runner)));
-
     if (GetTextInputManager())
         GetTextInputManager()->AddObserver(this);
 }
@@ -941,9 +942,11 @@ bool RenderWidgetHostViewQt::forwardEvent(QEvent *event)
     case QEvent::TouchCancel:
         handleTouchEvent(static_cast<QTouchEvent*>(event));
         break;
+#ifndef QT_NO_GESTURES
     case QEvent::NativeGesture:
         handleGestureEvent(static_cast<QNativeGestureEvent *>(event));
         break;
+#endif // QT_NO_GESTURES
     case QEvent::HoverMove:
         handleHoverEvent(static_cast<QHoverEvent*>(event));
         break;
@@ -956,6 +959,10 @@ bool RenderWidgetHostViewQt::forwardEvent(QEvent *event)
         break;
     case QEvent::InputMethodQuery:
         handleInputMethodQueryEvent(static_cast<QInputMethodQueryEvent*>(event));
+        break;
+    case QEvent::HoverLeave:
+    case QEvent::Leave:
+        m_host->ForwardMouseEvent(WebEventFactory::toWebMouseEvent(event));
         break;
     default:
         return false;
@@ -1335,6 +1342,7 @@ void RenderWidgetHostViewQt::clearPreviousTouchMotionState()
     m_touchMotionStarted = false;
 }
 
+#ifndef QT_NO_GESTURES
 void RenderWidgetHostViewQt::handleGestureEvent(QNativeGestureEvent *ev)
 {
     const Qt::NativeGestureType type = ev->gestureType();
@@ -1345,12 +1353,22 @@ void RenderWidgetHostViewQt::handleGestureEvent(QNativeGestureEvent *ev)
                                         static_cast<double>(dpiScale())));
     }
 }
+#endif
+
+Q_DECLARE_LOGGING_CATEGORY(QWEBENGINE_TOUCH_HANDLING);
+Q_LOGGING_CATEGORY(QWEBENGINE_TOUCH_HANDLING, "qt.webengine.touch");
 
 void RenderWidgetHostViewQt::handleTouchEvent(QTouchEvent *ev)
 {
     // On macOS instead of handling touch events, we use the OS provided QNativeGestureEvents.
 #ifdef Q_OS_MACOS
-    return;
+    if (ev->spontaneous()) {
+        return;
+    } else {
+        qCWarning(QWEBENGINE_TOUCH_HANDLING)
+            << "Sending simulated touch events to Chromium does not work properly on macOS. "
+               "Consider using QNativeGestureEvents or QMouseEvents.";
+    }
 #endif
 
     // Chromium expects the touch event timestamps to be comparable to base::TimeTicks::Now().
@@ -1398,6 +1416,19 @@ void RenderWidgetHostViewQt::handleTouchEvent(QTouchEvent *ev)
         break;
     default:
         break;
+    }
+
+    if (m_imeInProgress && ev->type() == QEvent::TouchBegin) {
+        m_imeInProgress = false;
+        // Tell input method to commit the pre-edit string entered so far, and finish the
+        // composition operation.
+#ifdef Q_OS_WIN
+        // Yes the function name is counter-intuitive, but commit isn't actually implemented
+        // by the Windows QPA, and reset does exactly what is necessary in this case.
+        qApp->inputMethod()->reset();
+#else
+        qApp->inputMethod()->commit();
+#endif
     }
 
     // Make sure that ACTION_POINTER_DOWN is delivered before ACTION_MOVE,
@@ -1466,8 +1497,7 @@ void RenderWidgetHostViewQt::SetNeedsBeginFrames(bool needs_begin_frames)
 
 void RenderWidgetHostViewQt::updateNeedsBeginFramesInternal()
 {
-    if (!m_beginFrameSource)
-        return;
+    Q_ASSERT(m_beginFrameSource);
 
     if (m_addedFrameObserver == m_needsBeginFrames)
         return;

@@ -144,7 +144,6 @@ static int windowsKeyCodeForKeyEvent(unsigned int keycode, bool isKeypad)
             return VK_SHIFT; // (10) SHIFT key
         case Qt::Key_Control:
             return VK_CONTROL; // (11) CTRL key
-        case Qt::Key_Menu:
         case Qt::Key_Alt:
             return VK_MENU; // (12) ALT key
         default:
@@ -167,7 +166,6 @@ static int windowsKeyCodeForKeyEvent(unsigned int keycode, bool isKeypad)
             return VK_SHIFT; // (10) SHIFT key
         case Qt::Key_Control:
             return VK_CONTROL; // (11) CTRL key
-        case Qt::Key_Menu:
         case Qt::Key_Alt:
             return VK_MENU; // (12) ALT key
 
@@ -357,7 +355,8 @@ static int windowsKeyCodeForKeyEvent(unsigned int keycode, bool isKeypad)
             return VK_LWIN; // (5B) Left Windows key (Microsoft Natural keyboard)
             // case Qt::Key_Meta_R: FIXME: What to do here?
             //    return VK_RWIN; // (5C) Right Windows key (Natural keyboard)
-            // VK_APPS (5D) Applications key (Natural keyboard)
+        case Qt::Key_Menu: // (5D) Applications key (Natural keyboard)
+            return VK_APPS;
             // VK_SLEEP (5F) Computer Sleep key
             // VK_SEPARATOR (6C) Separator key
             // VK_SUBTRACT (6D) Subtract key
@@ -1020,12 +1019,15 @@ static ui::DomKey getDomKeyFromQKeyEvent(QKeyEvent *ev)
     }
 }
 
-static inline double currentTimeForEvent(const QInputEvent* event)
+static inline double currentTimeForEvent(const QEvent *event)
 {
     Q_ASSERT(event);
 
-    if (event->timestamp())
-        return static_cast<double>(event->timestamp()) / 1000;
+    if (event->type() != QEvent::Leave) {
+        const QInputEvent *inputEvent = static_cast<const QInputEvent *>(event);
+        if (inputEvent->timestamp())
+            return static_cast<double>(inputEvent->timestamp()) / 1000;
+    }
 
     static QElapsedTimer timer;
     if (!timer.isValid())
@@ -1193,6 +1195,7 @@ WebMouseEvent WebEventFactory::toWebMouseEvent(QMouseEvent *ev, double dpiScale)
 
     webKitEvent.type = webEventTypeForEvent(ev);
     webKitEvent.clickCount = 0;
+    webKitEvent.pointerType = WebPointerProperties::PointerType::Mouse;
 
     return webKitEvent;
 }
@@ -1207,11 +1210,23 @@ WebMouseEvent WebEventFactory::toWebMouseEvent(QHoverEvent *ev, double dpiScale)
     webKitEvent.y = webKitEvent.windowY = ev->pos().y() / dpiScale;
     webKitEvent.movementX = ev->pos().x() - ev->oldPos().x();
     webKitEvent.movementY = ev->pos().y() - ev->oldPos().y();
+    webKitEvent.pointerType = WebPointerProperties::PointerType::Mouse;
 
     webKitEvent.type = webEventTypeForEvent(ev);
     return webKitEvent;
 }
 
+WebMouseEvent WebEventFactory::toWebMouseEvent(QEvent *ev)
+{
+    Q_ASSERT(ev->type() == QEvent::Leave || ev->type() == QEvent::HoverLeave);
+
+    WebMouseEvent webKitEvent;
+    webKitEvent.timeStampSeconds = currentTimeForEvent(ev);
+    webKitEvent.type = WebInputEvent::MouseLeave;
+    return webKitEvent;
+}
+
+#ifndef QT_NO_GESTURES
 WebGestureEvent WebEventFactory::toWebGestureEvent(QNativeGestureEvent *ev, double dpiScale)
 {
     WebGestureEvent webKitEvent;
@@ -1248,6 +1263,7 @@ WebGestureEvent WebEventFactory::toWebGestureEvent(QNativeGestureEvent *ev, doub
 
     return webKitEvent;
 }
+#endif
 
 blink::WebMouseWheelEvent WebEventFactory::toWebWheelEvent(QWheelEvent *ev, double dpiScale)
 {

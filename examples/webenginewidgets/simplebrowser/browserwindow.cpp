@@ -1,12 +1,22 @@
 /****************************************************************************
 **
 ** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the examples of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:BSD$
-** You may use this file under the terms of the BSD license as follows:
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and The Qt Company. For licensing terms
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
+**
+** BSD License Usage
+** Alternatively, you may use this file under the terms of the BSD license
+** as follows:
 **
 ** "Redistribution and use in source and binary forms, with or without
 ** modification, are permitted provided that the following conditions are
@@ -57,9 +67,10 @@
 #include <QVBoxLayout>
 #include <QWebEngineProfile>
 
-BrowserWindow::BrowserWindow(Browser *browser)
+BrowserWindow::BrowserWindow(Browser *browser, QWebEngineProfile *profile)
     : m_browser(browser)
-    , m_tabWidget(new TabWidget(this))
+    , m_profile(profile)
+    , m_tabWidget(new TabWidget(profile, this))
     , m_progressBar(new QProgressBar(this))
     , m_historyBackAction(nullptr)
     , m_historyForwardAction(nullptr)
@@ -131,6 +142,7 @@ QMenu *BrowserWindow::createFileMenu(TabWidget *tabWidget)
 {
     QMenu *fileMenu = new QMenu(tr("&File"));
     fileMenu->addAction(tr("&New Window"), this, &BrowserWindow::handleNewWindowTriggered, QKeySequence::New);
+    fileMenu->addAction(tr("New &Incognito Window"), this, &BrowserWindow::handleNewIncognitoWindowTriggered);
 
     QAction *newTabAction = new QAction(tr("New &Tab"), this);
     newTabAction->setShortcuts(QKeySequence::AddTab);
@@ -393,10 +405,14 @@ void BrowserWindow::handleWebActionEnabledChanged(QWebEnginePage::WebAction acti
 
 void BrowserWindow::handleWebViewTitleChanged(const QString &title)
 {
+    QString suffix = m_profile->isOffTheRecord()
+        ? tr("Qt Simple Browser (Incognito)")
+        : tr("Qt Simple Browser");
+
     if (title.isEmpty())
-        setWindowTitle(tr("Qt Simple Browser"));
+        setWindowTitle(suffix);
     else
-        setWindowTitle(tr("%1 - Qt Simple Browser").arg(title));
+        setWindowTitle(title + " - " + suffix);
 }
 
 void BrowserWindow::handleNewWindowTriggered()
@@ -404,13 +420,18 @@ void BrowserWindow::handleNewWindowTriggered()
     m_browser->createWindow();
 }
 
+void BrowserWindow::handleNewIncognitoWindowTriggered()
+{
+    m_browser->createWindow(/* offTheRecord: */ true);
+}
+
 void BrowserWindow::handleFileOpenTriggered()
 {
-    QString file = QFileDialog::getOpenFileName(this, tr("Open Web Resource"), QString(),
+    QUrl url = QFileDialog::getOpenFileUrl(this, tr("Open Web Resource"), QString(),
                                                 tr("Web Resources (*.html *.htm *.svg *.png *.gif *.svgz);;All files (*.*)"));
-    if (file.isEmpty())
+    if (url.isEmpty())
         return;
-    currentTab()->setUrl(file);
+    currentTab()->setUrl(url);
 }
 
 void BrowserWindow::handleFindActionTriggered()
